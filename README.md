@@ -1,1 +1,1 @@
-# cuSVMWrapper
+cuSVM command line wrapper
