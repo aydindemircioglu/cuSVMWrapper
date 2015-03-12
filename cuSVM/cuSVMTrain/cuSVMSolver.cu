@@ -337,28 +337,20 @@ __global__ void UpdateF(float * F,float *KernelColI,float* KernelColJ, float* d_
 
 }
 
+
+
 __global__ void RBFFinish(float *KernelCol, const float * KernelDotProd,const float* DotProd,const float* DotProdRow,const int n)
 {
-	
 	int totalThreads,ctaStart,tid;
 	totalThreads = gridDim.x*blockDim.x;
 	ctaStart = blockDim.x*blockIdx.x;
 	tid = threadIdx.x;
 	int i;
-	float temp;
-	
-			for (i = ctaStart + tid; i < n; i += totalThreads) 
-			{
-			
-   
-				
-				KernelCol[i] = expf(kernelwidth*(DotProd[i]+*DotProdRow-KernelDotProd[i]*2.f));
-			}
 
-
+	for (i = ctaStart + tid; i < n; i += totalThreads)  {
+		KernelCol[i] = expf(kernelwidth*(DotProd[i]+*DotProdRow-KernelDotProd[i]*2.f));
+	}
 }
-
-
 
 
 
@@ -576,26 +568,20 @@ extern "C"
 void SVRTrain(float *mexalpha,float* beta,float*y,float *x ,float CC, float gamma, float eps, int m, int n, float StoppingCrit)
 {
 	
-
-
-	
 	cudaEvent_t start, stop;
 	cudaEventCreate(&start);
 	cudaEventCreate(&stop);
 	
-	mxArray *mexelapsed =mxCreateNumericMatrix(1, 1,mxSINGLE_CLASS, mxREAL);
-	float * elapsed=(float *)mxGetData(mexelapsed);    
-
+	// mxArray *mexelapsed =mxCreateNumericMatrix(1, 1,mxSINGLE_CLASS, mxREAL);
+	// float * elapsed=(float *)mxGetData(mexelapsed);    
 
 	cudaEventRecord(start,0);
 	
 	cublasInit();
 
-
 	int numBlocks=64;
 	dim3 ReduceGrid(numBlocks, 1, 1);
 	dim3 ReduceBlock(256, 1, 1);
-
 
   
 	float h_taumin=0.0001;
@@ -747,11 +733,9 @@ void SVRTrain(float *mexalpha,float* beta,float*y,float *x ,float CC, float gamm
 	float Fj;
 	
 
-		while (1)
-		{
+	while (1)
+	{
 			
-			
-
 			FindBI<256><<<ReduceGrid, ReduceBlock>>>(d_F, d_y,d_alpha,d_value_inter,d_index_inter, 2*m);
 			
 			CUDA_SAFE_CALL(cudaMemcpy(value_inter, d_value_inter, sizeof(float)*numBlocks,cudaMemcpyDeviceToHost));
@@ -862,31 +846,20 @@ void SVRTrain(float *mexalpha,float* beta,float*y,float *x ,float CC, float gamm
 			*(KernelCacheItersSinceUsed.begin()+CacheDiffI)=0;
 			*(KernelCacheItersSinceUsed.begin()+CacheDiffJ)=0;
 
-		
-
 		iter++;
-
-		}
-
-
+	}
 
 	cublasGetVector(m*2,sizeof(float),d_alpha,1,alphasvr,1);
 
-	for(int k=0;k<m;k++)
-	{
+	for(int k=0;k<m;k++) 	{
 		mexalpha[k]=(alphasvr[k]-alphasvr[k+m])*ybinary[k];
 	}
 	
 
-
-
 	cudaEventRecord(stop,0);
 	cudaEventSynchronize(stop);
-	cudaEventElapsedTime(elapsed, start, stop);
-	
-	mexPutVariable("base","cuSVMTrainTimeInMS",mexelapsed);   
-
-
+	// cudaEventElapsedTime(elapsed, start, stop);
+	// mexPutVariable("base","cuSVMTrainTimeInMS",mexelapsed);   
 
 	delete [] ybinary;
 	delete [] alphasvr;
@@ -926,7 +899,7 @@ void SVRTrain(float *mexalpha,float* beta,float*y,float *x ,float CC, float gamm
 
 extern "C"
 void SVMTrain(float *mexalpha,float* beta,float*y,float *x ,float CC, float gamma, int m, int n, float StoppingCrit)
-	{
+{
 
 	//CUDA_SAFE_CALL(cudaSetDevice(1));
 
@@ -934,13 +907,11 @@ void SVMTrain(float *mexalpha,float* beta,float*y,float *x ,float CC, float gamm
 	cudaEventCreate(&start);
 	cudaEventCreate(&stop);
    
-	mxArray *mexelapsed =mxCreateNumericMatrix(1, 1,mxSINGLE_CLASS, mxREAL);
-	float * elapsed=(float *)mxGetData(mexelapsed);
+	// mxArray *mexelapsed =mxCreateNumericMatrix(1, 1,mxSINGLE_CLASS, mxREAL);
+	// float * elapsed=(float *)mxGetData(mexelapsed);
 
 
 	cudaEventRecord(start,0);
-
-
 
 	int numBlocks=64;
 	dim3 ReduceGrid(numBlocks, 1, 1);
@@ -954,7 +925,6 @@ void SVMTrain(float *mexalpha,float* beta,float*y,float *x ,float CC, float gamm
 	CUDA_SAFE_CALL(cudaMemcpyToSymbol(kernelwidth, &gamma, sizeof(float)));
 
 	CUDA_SAFE_CALL(cudaMemcpyToSymbol(C, &CC, sizeof(float)));
-
 
 
 	float *h_alpha=new float [m];
@@ -1096,10 +1066,10 @@ void SVMTrain(float *mexalpha,float* beta,float*y,float *x ,float CC, float gamm
 
 
 
-		while (1)
-		{
+	while (1)
+	{
 
-			//poszukaj max indeksu I, kandydaci znajduj¹ siê w tablicach d_*_inter
+		//poszukaj max indeksu I, kandydaci znajduj¹ siê w tablicach d_*_inter
 		FindBI<256><<<ReduceGrid, ReduceBlock>>>(d_F, d_y,d_alpha,d_value_inter,d_index_inter, m);
 		CUDA_SAFE_CALL(cudaMemcpy(value_inter, d_value_inter, sizeof(float)*numBlocks,cudaMemcpyDeviceToHost));
 		CUDA_SAFE_CALL(cudaMemcpy(index_inter, d_index_inter, sizeof(int)*numBlocks,cudaMemcpyDeviceToHost));
@@ -1162,18 +1132,13 @@ void SVMTrain(float *mexalpha,float* beta,float*y,float *x ,float CC, float gamm
 		oldalphai=alphai;
 		oldalphaj=alphaj;
 
-
 		UpdateAlphas(alphai,alphaj,Kij,yi,yj,Fi,Fj,CC,h_taumin);
-
-
 
 		CUDA_SAFE_CALL(cudaMemcpy(d_alpha+BIIndex, &alphai, sizeof(float),cudaMemcpyHostToDevice));
 		CUDA_SAFE_CALL(cudaMemcpy(d_alpha+BJIndex, &alphaj, sizeof(float),cudaMemcpyHostToDevice));
 
 		float deltaalphai = alphai - oldalphai;
 		float deltaalphaj = alphaj - oldalphaj;
-
-
 
 
 		CachePosJ=find(KernelCacheIndices.begin(),KernelCacheIndices.end(),BJIndex);
@@ -1189,10 +1154,8 @@ void SVMTrain(float *mexalpha,float* beta,float*y,float *x ,float CC, float gamm
 		{
 			CacheDiffJ=CachePosJ-KernelCacheIndices.begin();
 			d_KernelJ=d_Kernel_Cache+m*CacheDiffJ;
-
 		}
 		 
-
 
 		UpdateF<<<nbrCtas,threadsPerCta>>>(d_F,d_KernelI,d_KernelJ,d_y,deltaalphai,deltaalphaj,yi,yj,m);
 
@@ -1201,11 +1164,8 @@ void SVMTrain(float *mexalpha,float* beta,float*y,float *x ,float CC, float gamm
 		*(KernelCacheItersSinceUsed.begin()+CacheDiffI)=0;
 		*(KernelCacheItersSinceUsed.begin()+CacheDiffJ)=0;
 
-
-
 		iter++;
-
-		}
+	}
 
 
 
@@ -1215,12 +1175,9 @@ void SVMTrain(float *mexalpha,float* beta,float*y,float *x ,float CC, float gamm
 
 	cudaEventRecord(stop,0);
 	cudaEventSynchronize(stop);
-	cudaEventElapsedTime(elapsed, start, stop);
-	
 
-	
-	
-	 mexPutVariable("base","cuSVMTrainTimeInMS",mexelapsed);
+	// cudaEventElapsedTime(elapsed, start, stop);
+	// mexPutVariable("base","cuSVMTrainTimeInMS",mexelapsed);
 
 	 CUDA_SAFE_CALL(cudaMemcpy(h_F, d_F, sizeof(float)*m,cudaMemcpyDeviceToHost));
 	 
@@ -1230,16 +1187,19 @@ void SVMTrain(float *mexalpha,float* beta,float*y,float *x ,float CC, float gamm
 
 	 obj=obj/2;
 	 
-	 mxArray *mexObj =mxCreateNumericMatrix(1, 1,mxSINGLE_CLASS, mxREAL);
-	 float * objF=(float *)mxGetData(mexObj);
-	 *objF = (float)obj;
-	 mexPutVariable("base","cuSVMTrainObj",mexObj);
+	 
+	 // FIXME!!
+	 
+	 //mxArray *mexObj =mxCreateNumericMatrix(1, 1,mxSINGLE_CLASS, mxREAL);
+	 //float* objF=(float *)mxGetData(mexObj);
+	 //*objF = (float)obj;
+	 // mexPutVariable("base","cuSVMTrainObj",mexObj);
 		
 
-	 mxArray *mexIter =mxCreateNumericMatrix(1, 1,mxSINGLE_CLASS, mxREAL);
-	 float * pIter=(float *)mxGetData(mexIter);
-	 *pIter = iter+0.0f;
-	 mexPutVariable("base","cuSVMTrainIter",mexIter);
+	 // mxArray *mexIter =mxCreateNumericMatrix(1, 1,mxSINGLE_CLASS, mxREAL);
+	 // float * pIter=(float *)mxGetData(mexIter);
+	 // *pIter = iter+0.0f;
+	 // mexPutVariable("base","cuSVMTrainIter",mexIter);
 
 
 	delete [] xT;

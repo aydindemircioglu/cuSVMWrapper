@@ -192,23 +192,22 @@ __global__ void RBFKernelForPredict( const float *A, int lda, const float *B, in
 extern "C"
 void GPUPredictWrapper(int m, int n, int k, float kernelwidth, const float *Test, const float *Svs, float * alphas,float *prediction, float beta,float isregression)
 {	
+	// for now this is not important to us
+	// mxArray *mexelapsed = mxCreateNumericMatrix(1, 1,mxSINGLE_CLASS, mxREAL);
+	// float * elapsed=(float *)mxGetData(mexelapsed);    
     
-
-    mxArray *mexelapsed = mxCreateNumericMatrix(1, 1,mxSINGLE_CLASS, mxREAL);
-	float * elapsed=(float *)mxGetData(mexelapsed);    
+    // start things
     cudaEvent_t start, stop;
     cudaEventCreate(&start);
     cudaEventCreate(&stop);
-
     cudaEventRecord(start,0);
-        
+
+    // 
     int paddedm=m+32-m%32;
     int paddedk=k+32-k%32;
     int paddedn=n+32-n%32;    
       
  
-
-
     float* d_PaddedSvs;
     CUDA_SAFE_CALL( cudaMalloc( (void**) &d_PaddedSvs, paddedn*paddedk*sizeof(float)));
 
@@ -258,47 +257,30 @@ void GPUPredictWrapper(int m, int n, int k, float kernelwidth, const float *Test
 
     for (int j=0;j<NecIterations;j++)
     {
-       
-        if (j+1==NecIterations)
-        {
+        if (j+1==NecIterations)  {
            cublasSetMatrix(m-j*RowsPerIter,k,sizeof(float),Test+j*RowsPerIter,m,d_TestInter,RowsPerIter);
-          
-        }
-        else
-        {
+        } else {
             cublasSetMatrix(RowsPerIter,k,sizeof(float),Test+j*RowsPerIter,m,d_TestInter,RowsPerIter);
         }
              
         RBFKernelForPredict<<<grid, threads2>>>(d_TestInter, RowsPerIter, d_PaddedSvs, paddedn, d_QInter, RowsPerIter, paddedk, kernelwidth);
-            
-
-         sgemvn_mixedprecis<<<CTAS,THREAD_COUNT>>>(d_QInter,d_alphas,d_prediction+j*RowsPerIter,RowsPerIter,n,RowsPerIter,1,1);
-        
+		sgemvn_mixedprecis<<<CTAS,THREAD_COUNT>>>(d_QInter,d_alphas,d_prediction+j*RowsPerIter,RowsPerIter,n,RowsPerIter,1,1);
     }
-
 
     cublasGetVector(m,sizeof(float),d_prediction,1,prediction,1);
     
-
-
-    for(int j=0;j<m;j++)
-    {
+    for(int j=0;j<m;j++) {
         prediction[j]+=beta;
         if (isregression!=1){prediction[j]=prediction[j]<0?-1.0:1.0;}    
     }
 
-    
-
-   
-
     cudaThreadSynchronize();
     cudaEventRecord(stop,0);
     cudaEventSynchronize(stop);
-    cudaEventElapsedTime(elapsed, start, stop);
-   
-     mexPutVariable("base","cuSVMPredictTimeInMS",mexelapsed);
-    
 
+    // cudaEventElapsedTime(elapsed, start, stop);
+	// mexPutVariable("base","cuSVMPredictTimeInMS",mexelapsed);
+    
    
     CUDA_SAFE_CALL( cudaFree(d_alphas));
     CUDA_SAFE_CALL( cudaFree(d_TestInter));

@@ -4,6 +4,8 @@
 #include <ctype.h>
 #include <errno.h>
 #include "svm.h"
+#include <math.h>
+#include <string>
 #define Malloc(type,n) (type *)malloc((n)*sizeof(type))
 
 void print_null(const char *s) {}
@@ -14,20 +16,17 @@ void exit_with_help()
 	"Usage: svm-train [options] training_set_file [model_file]\n"
 	"options:\n"
 	"-s svm_type : set type of SVM (default 0)\n"
-	"	0 -- C-SVC\n"
-	"	1 -- nu-SVC\n"
+	"	0 -- C-SVC		(multi-class classification)\n"
+	"	1 -- nu-SVC		(multi-class classification)\n"
 	"	2 -- one-class SVM\n"
-	"	3 -- epsilon-SVR\n"
-	"	4 -- nu-SVR\n"
+	"	3 -- epsilon-SVR	(regression)\n"
+	"	4 -- nu-SVR		(regression)\n"
 	"-t kernel_type : set type of kernel function (default 2)\n"
 	"	0 -- linear: u'*v\n"
 	"	1 -- polynomial: (gamma*u'*v + coef0)^degree\n"
 	"	2 -- radial basis function: exp(-gamma*|u-v|^2)\n"
 	"	3 -- sigmoid: tanh(gamma*u'*v + coef0)\n"
 	"	4 -- precomputed kernel (kernel values in training_set_file)\n"
-	"	5 -- chi-squaree kernel k(x,y)=1-2*sum( (xi-yi)^2/(xi+yi))\n"
-	"	6 -- norm chi-squaree kernel k(x,y)=sum( xi*yi/(xi+yi))\n"
-	"	7 -- exponential chi-squaree kernel k(x,y)=exp(-gamma*sum( (xi-yi)^2/(xi+yi)))\n"
 	"-d degree : set degree in kernel function (default 3)\n"
 	"-g gamma : set gamma in kernel function (default 1/num_features)\n"
 	"-r coef0 : set coef0 in kernel function (default 0)\n"
@@ -41,6 +40,10 @@ void exit_with_help()
 	"-wi weight : set the parameter C of class i to weight*C, for C-SVC (default 1)\n"
 	"-v n: n-fold cross validation mode\n"
 	"-q : quiet mode (no outputs)\n"
+    "-l walltime : set maximum walltime in minutes (default -1)\n"
+    "-a savetime : set time interval in minutes to report current primalvalue (default -1)\n"
+    "-x modelpath : path to save walltime models (default .).\n"
+    "-k subsampling: amount to subsample, between 0.0 and 1.0, e.g. 0.5=half of dataset. First N elements will be taken. (default 1.0)\n"
 	);
 	exit(1);
 }
@@ -82,6 +85,13 @@ static char* readline(FILE *input)
 	}
 	return line;
 }
+
+
+extern double subsamplingAmount;
+extern int walltime;
+extern int savetime;
+extern std::string modelPath;
+
 
 int main(int argc, char **argv)
 {
@@ -182,7 +192,10 @@ void parse_command_line(int argc, char **argv, char *input_file_name, char *mode
 	param.nr_weight = 0;
 	param.weight_label = NULL;
 	param.weight = NULL;
+        walltime = -1;
+        savetime = -1;
 	cross_validation = 0;
+    subsamplingAmount  = -1;
 
 	// parse options
 	for(i=1;i<argc;i++)
@@ -192,6 +205,14 @@ void parse_command_line(int argc, char **argv, char *input_file_name, char *mode
 			exit_with_help();
 		switch(argv[i-1][1])
 		{
+            case 'k':
+                subsamplingAmount = atof(argv[i]);
+                if ((subsamplingAmount <= 0.0) || (subsamplingAmount > 1.0))
+                {
+                    fprintf(stderr,"Subsampling amount must be > 0.0 and <= 1.0!\n");
+                    exit_with_help();
+                }
+                break;
 			case 's':
 				param.svm_type = atoi(argv[i]);
 				break;
@@ -241,6 +262,15 @@ void parse_command_line(int argc, char **argv, char *input_file_name, char *mode
 					exit_with_help();
 				}
 				break;
+            case 'a':
+                    savetime = atoi(argv[i]);
+                    break;
+            case 'l':
+                    walltime = atoi(argv[i]);
+                    break;
+            case 'x':
+                    modelPath = (argv[i]);
+                    break;
 			case 'w':
 				++param.nr_weight;
 				param.weight_label = (int *)realloc(param.weight_label,sizeof(int)*param.nr_weight);
@@ -313,6 +343,26 @@ void read_problem(const char *filename)
 	}
 	rewind(fp);
 
+    if (subsamplingAmount != -1)
+    {
+        // compute new size of subsampled dataset
+        unsigned int subsampledSize = (unsigned int)floor((double) prob.l*subsamplingAmount);
+        
+        // sanity check
+        if (subsampledSize > (unsigned int) prob.l) 
+        {
+            printf("WARNING: Subsampling yielded more elements than read. Disabling Subsampling!\n");
+            subsampledSize = prob.l;
+        }
+        if (subsampledSize == 0)
+        {
+            fprintf(stderr,"Subsampling yielded zero elements! No data, no SVM!\n");
+            exit(1);
+        }
+        
+        printf("Found %u data points, reading the first %u of them.", (unsigned int)  prob.l, subsampledSize);
+        prob.l = (unsigned int) subsampledSize;
+    }
 	prob.y = Malloc(double,prob.l);
 	prob.x = Malloc(struct svm_node *,prob.l);
 	x_space = Malloc(struct svm_node,elements);

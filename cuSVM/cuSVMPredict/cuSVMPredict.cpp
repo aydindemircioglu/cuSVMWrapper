@@ -242,7 +242,7 @@ int main(int argc, char **argv)
 
 
 
-
+/*
 
 // all single precision floats.
 Test data, SupportVectors, alpha, beta=bias, gamma, isRegression
@@ -270,4 +270,7 @@ Test data, SupportVectors, alpha, beta=bias, gamma, isRegression
 
 	GPUPredictWrapper(m, n, k, kernelwidth, Test, Svs, alphas, prediction, beta, isregression);
 	return;
-}*/
+}
+
+
+*/

@@ -128,9 +128,9 @@ void checkCUDAError(const char *msg)
     if( cudaSuccess != err) 
     {
 
-        printf(msg);
+        printf("%s", msg);
         printf(" "); 
-        printf(cudaGetErrorString( err) );
+        printf("%s", cudaGetErrorString( err) );
         printf(".  "); 
         exit(-1);
     }                         
