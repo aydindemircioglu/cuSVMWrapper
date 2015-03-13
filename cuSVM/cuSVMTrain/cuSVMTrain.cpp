@@ -1,19 +1,27 @@
-
-#include <stdio.h>
-#include <math.h>
-
-
-#include <stdio.h>
-#include <ctype.h>
-#include <stdlib.h>
-#include <string.h>
-#include <errno.h>
-
-
-extern "C" {
-	void SVMTrain(float *mexalpha,float* beta,float*y,float *x ,float CC, float gamma, int m, int n, float StoppingCrit);
-	void SVRTrain(float *mexalpha,float* beta,float*y,float *x ,float CC, float gamma, float eps, int m, int n, float StoppingCrit);
-}
+//===========================================================================
+/*!
+ *
+ * \brief       cuSVM wrapper.
+ *
+ * \author      Aydin Demircioglu
+ * \date        2015
+ *
+ *
+ * This is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published
+ * by the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You have not received a copy of the GNU Lesser General Public License
+ * along with this. See <http://www.gnu.org/licenses/>.
+ *
+*/
+//===========================================================================
 
 
 #include <stdio.h>
@@ -24,6 +32,13 @@ extern "C" {
 #include "svm.h"
 #include <math.h>
 #include <string>
+
+
+extern "C" {
+	void SVMTrain(float *mexalpha,float* beta,float*y,float *x ,float CC, float gamma, int m, int n, float StoppingCrit);
+	void SVRTrain(float *mexalpha,float* beta,float*y,float *x ,float CC, float gamma, float eps, int m, int n, float StoppingCrit);
+}
+
 #define Malloc(type,n) (type *)malloc((n)*sizeof(type))
 #define Calloc(type,n) (type *)calloc((n), sizeof(type))
 
@@ -130,6 +145,9 @@ int main(int argc, char **argv)
 			x[prob.l*prob.max_index + px->index] = px -> value;
 			++px;
 		}
+		
+		// assign label
+		y[i] = prob.y[i];
 	}
 
 	
@@ -138,33 +156,84 @@ int main(int argc, char **argv)
 	float eps = param.eps;
 	float bias = 0;
 	
-	int IsRegression = 0;
-	
-	float *alpha=new float [prob.l];
-	
-		/*
-		 *		// do extra check if there is only one class
-		 *		// do check for +1 and -1 labels, not 0/1
-		 *		int JustOneClassError=1;
-		 *		int NotOneorNegOneError=0;
-		 *		float FirstY=y[0];
-		 * 
-		 *		for(int k=0;k<m;k++)
-		 *		{
-		 *			if(y[k]!=FirstY) {JustOneClassError=0;}
-		 *			if((y[k]!=1.0) && (y[k]!=-1.0) ){NotOneorNegOneError=1;}
+		
+	// do extra check if there is only one class
+	// do check for +1 and -1 labels, not 0/1
+	int JustOneClassError=1;
+	int NotOneorNegOneError=0;
+	float FirstY=y[0];
 
+	for(int k = 0; k < prob.l; k++)
+	{
+		if(y[k]!=FirstY) {
+			JustOneClassError = 0;
+		}
+		
+		if((y[k]!=1.0) && (y[k]!=-1.0) ) {
+			NotOneorNegOneError=1;
+		}
+	}
 	
 	if (JustOneClassError==1)
-		mexErrMsgTxt("All training labels are of the same class.  There must of course be two classes");
+		throw ("All training labels are of the same class.  There must of course be two classes");
 	
 	if (NotOneorNegOneError==1)
-		mexErrMsgTxt("Training labels must be either 1 or -1.");
-	*/
-		SVMTrain(alpha, &bias, y, x ,C, kernelwidth, prob.l, prob.max_index, eps);
-	
-	// now we need to create our model with these alphas
+		throw ("Training labels must be either 1 or -1.");
 		
+	// do the training now.
+	float *alpha=new float [prob.l];
+	
+	// FIXME: KERNEL CACHE SIZE
+	int IsRegression = 0;
+	
+	SVMTrain(alpha, &bias, y, x ,C, kernelwidth, prob.l, prob.max_index, eps);
+
+	// save  damn model
+	struct svm_model* hack_model = NULL;
+	hack_model->param = param;
+		
+	double* coeff_ptr = Malloc(double, prob.l);
+	hack_model->sv_coef = &coeff_ptr;
+	hack_model->SV = Malloc(svm_node*, prob.l);
+	int nonzero = 0;
+	int positive = 0;
+	int negative = 0;
+	
+	for (int i=0; i < prob.l; i++)
+	{
+		if (alpha[i] != 0.0)
+		{
+			if (y[i]==+1)
+			{
+				coeff_ptr[nonzero] = alpha[i];
+				positive++;
+			}
+			else
+			{
+				coeff_ptr[nonzero] = -alpha[i];
+				negative++;
+			}
+			SVC_Q Q(prob, param, y);
+			hack_model->SV[nonzero] = const_cast<struct svm_node *>(Q.get_x(i));
+			nonzero++;
+		}
+	}
+	hack_model->l = nonzero;
+	hack_model->nSV[0] = positive;
+	hack_model->nSV[1] = negative;
+	hack_model->rho[0] = bias;
+	
+	if(svm_save_model(model_file_name, hack_model))
+	{
+		fprintf(stderr, "can't save model to file %s\n", model_file_name);
+		exit(1);
+	}
+
+	
+	free(coeff_ptr);
+	free(hack_model->SV);
+
+	// now we need to create our model with these alphas
 	svm_destroy_param(&param);
 	free(prob.y);
 	free(prob.x);
