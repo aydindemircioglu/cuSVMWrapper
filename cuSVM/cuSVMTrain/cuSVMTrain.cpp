@@ -32,6 +32,7 @@
 #include "svm.h"
 #include <math.h>
 #include <string>
+#include <iostream>
 
 
 extern "C" {
@@ -112,8 +113,6 @@ static char* readline(FILE *input)
 
 //extern double subsamplingAmount;
 
-
-
 int main(int argc, char **argv)
 {
 	char input_file_name[1024];
@@ -185,13 +184,14 @@ int main(int argc, char **argv)
 	
 	// FIXME: KERNEL CACHE SIZE
 	int IsRegression = 0;
-	
-	SVMTrain(alpha, &bias, y, x ,C, kernelwidth, prob.l, prob.max_index, eps);
+
+	SVMTrain(alpha, &bias, y, x ,C, kernelwidth, prob.l, prob.max_index, eps); //alpha, &bias, y, x ,C, kernelwidth, prob.l, prob.max_index, eps
 
 	// save  damn model
-	struct svm_model* hack_model = NULL;
+	struct svm_model* hack_model = Malloc(svm_model, 1);
+
 	hack_model->param = param;
-		
+
 	double* coeff_ptr = Malloc(double, prob.l);
 	hack_model->sv_coef = &coeff_ptr;
 	hack_model->SV = Malloc(svm_node*, prob.l);
@@ -218,28 +218,33 @@ int main(int argc, char **argv)
 			nonzero++;
 		}
 	}
+
+	hack_model->rho = Malloc(double, 1);
+	hack_model->nSV = Malloc(int, 2);
 	hack_model->l = nonzero;
 	hack_model->nSV[0] = positive;
 	hack_model->nSV[1] = negative;
 	hack_model->rho[0] = bias;
 	
+
 	if(svm_save_model(model_file_name, hack_model))
 	{
 		fprintf(stderr, "can't save model to file %s\n", model_file_name);
 		exit(1);
 	}
 
+
 	
 	free(coeff_ptr);
 	free(hack_model->SV);
 
 	// now we need to create our model with these alphas
+
 	svm_destroy_param(&param);
-	free(prob.y);
-	free(prob.x);
-	free(x_space);
-	free(line);
-	
+// 	free(prob.y);
+// 	free(prob.x);
+// 	free(x_space);
+// 	free(line);
 	return 0;
 }
 
@@ -266,6 +271,8 @@ void parse_command_line(int argc, char **argv, char *input_file_name, char *mode
 	param.nr_weight = 0;
 	param.weight_label = NULL;
 	param.weight = NULL;
+	param.weight_label = Malloc (int, 2);
+	param.weight = Malloc(double, 2);
 
 	cross_validation = 0;
 	

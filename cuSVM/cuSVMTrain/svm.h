@@ -5,6 +5,7 @@
 
 #include <math.h>
 #include <locale.h>
+#include <iostream>
 
 
 #ifdef __cplusplus
@@ -95,6 +96,7 @@ void svm_cross_validation(const struct svm_problem *prob, const struct svm_param
 
 int svm_save_model(const char *model_file_name, const svm_model *model)
 {
+
 	FILE *fp = fopen(model_file_name,"w");
 	if(fp==NULL) return -1;
 
@@ -126,7 +128,7 @@ int svm_save_model(const char *model_file_name, const svm_model *model)
 			fprintf(fp," %g",model->rho[i]);
 		fprintf(fp, "\n");
 	}
-	
+
 	if(model->label)
 	{
 		fprintf(fp, "label");
