@@ -4,6 +4,7 @@
 #define LIBSVM_VERSION 320
 
 #include <math.h>
+#include <locale.h>
 
 
 #ifdef __cplusplus
@@ -15,6 +16,16 @@ extern "C" {
 	
 	
 extern int libsvm_version;
+
+static const char *svm_type_table[] =
+{
+	"c_svc","nu_svc","one_class","epsilon_svr","nu_svr",NULL
+};
+
+static const char *kernel_type_table[]=
+{
+	"linear","polynomial","rbf","sigmoid","precomputed",NULL
+};
 
 struct svm_node
 {
@@ -82,7 +93,100 @@ struct svm_model
 struct svm_model *svm_train(const struct svm_problem *prob, const struct svm_parameter *param);
 void svm_cross_validation(const struct svm_problem *prob, const struct svm_parameter *param, int nr_fold, double *target);
 
-int svm_save_model(const char *model_file_name, const struct svm_model *model);
+int svm_save_model(const char *model_file_name, const svm_model *model)
+{
+	FILE *fp = fopen(model_file_name,"w");
+	if(fp==NULL) return -1;
+
+	char *old_locale = strdup(setlocale(LC_ALL, NULL));
+	setlocale(LC_ALL, "C");
+
+	const svm_parameter& param = model->param;
+
+	fprintf(fp,"svm_type %s\n", svm_type_table[param.svm_type]);
+	fprintf(fp,"kernel_type %s\n", kernel_type_table[param.kernel_type]);
+
+	if(param.kernel_type == POLY)
+		fprintf(fp,"degree %d\n", param.degree);
+
+	if(param.kernel_type == POLY || param.kernel_type == RBF || param.kernel_type == SIGMOID)
+		fprintf(fp,"gamma %g\n", param.gamma);
+
+	if(param.kernel_type == POLY || param.kernel_type == SIGMOID)
+		fprintf(fp,"coef0 %g\n", param.coef0);
+
+	int nr_class = model->nr_class;
+	int l = model->l;
+	fprintf(fp, "nr_class %d\n", nr_class);
+	fprintf(fp, "total_sv %d\n",l);
+	
+	{
+		fprintf(fp, "rho");
+		for(int i=0;i<nr_class*(nr_class-1)/2;i++)
+			fprintf(fp," %g",model->rho[i]);
+		fprintf(fp, "\n");
+	}
+	
+	if(model->label)
+	{
+		fprintf(fp, "label");
+		for(int i=0;i<nr_class;i++)
+			fprintf(fp," %d",model->label[i]);
+		fprintf(fp, "\n");
+	}
+
+	if(model->probA) // regression has probA only
+	{
+		fprintf(fp, "probA");
+		for(int i=0;i<nr_class*(nr_class-1)/2;i++)
+			fprintf(fp," %g",model->probA[i]);
+		fprintf(fp, "\n");
+	}
+	if(model->probB)
+	{
+		fprintf(fp, "probB");
+		for(int i=0;i<nr_class*(nr_class-1)/2;i++)
+			fprintf(fp," %g",model->probB[i]);
+		fprintf(fp, "\n");
+	}
+
+	if(model->nSV)
+	{
+		fprintf(fp, "nr_sv");
+		for(int i=0;i<nr_class;i++)
+			fprintf(fp," %d",model->nSV[i]);
+		fprintf(fp, "\n");
+	}
+
+	fprintf(fp, "SV\n");
+	const double * const *sv_coef = model->sv_coef;
+	const svm_node * const *SV = model->SV;
+
+	for(int i=0;i<l;i++)
+	{
+		for(int j=0;j<nr_class-1;j++)
+			fprintf(fp, "%.16g ",sv_coef[j][i]);
+
+		const svm_node *p = SV[i];
+
+		if(param.kernel_type == PRECOMPUTED)
+			fprintf(fp,"0:%d ",(int)(p->value));
+		else
+			while(p->index != -1)
+			{
+				fprintf(fp,"%d:%.8g ",p->index,p->value);
+				p++;
+			}
+		fprintf(fp, "\n");
+	}
+
+	setlocale(LC_ALL, old_locale);
+	free(old_locale);
+
+	if (ferror(fp) != 0 || fclose(fp) != 0) return -1;
+	else return 0;
+}
+
 struct svm_model *svm_load_model(const char *model_file_name);
 
 int svm_get_svm_type(const struct svm_model *model);
@@ -98,7 +202,12 @@ double svm_predict_probability(const struct svm_model *model, const struct svm_n
 
 void svm_free_model_content(struct svm_model *model_ptr);
 void svm_free_and_destroy_model(struct svm_model **model_ptr_ptr);
-void svm_destroy_param(struct svm_parameter *param);
+//void svm_destroy_param(struct svm_parameter *param);
+void svm_destroy_param(struct svm_parameter* param)
+{
+	free(param->weight_label);
+	free(param->weight);
+}
 
 const char *svm_check_parameter(const svm_problem *prob, const svm_parameter *param)
 {

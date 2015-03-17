@@ -85,7 +85,6 @@
 # executable	
 	cuda_add_executable(cuSVMTrain 
 		${cuSVMTrainDir}/cuSVMTrain.cpp 
-	#	${cuSVMPredictDir}/svm.cpp
 		${cuSVMSolver_O} 
 	)
 	CUDA_ADD_CUBLAS_TO_TARGET( cuSVMTrain )
