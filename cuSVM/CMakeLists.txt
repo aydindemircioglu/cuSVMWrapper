@@ -70,7 +70,7 @@
 	
 # nvcc compile things	
 	add_definitions(-DCUDA)
-	set(CUDA_NVCC_FLAGS ${CUDA_NVCC_FLAGS};-O3 -gencode arch=compute_35,code=sm_35)
+	set(CUDA_NVCC_FLAGS ${CUDA_NVCC_FLAGS};-O3 -gencode arch=compute_30,code=sm_30)
 	cuda_compile(cuSVMSolver_O 
 		${cuSVMIncludeDir}/cuSVMutil.h
 		${cuSVMTrainDir}/cuSVMSolver.cu

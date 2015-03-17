@@ -20,7 +20,8 @@ __device__ __constant__ float taumin;//=0.0001f;
 __constant__ float kernelwidth; //=0.1f;
 
 
-#define KERNEL_CACHE_SIZE (400*1024*1024)
+#define MBtoLeave         (1000)
+#define KERNEL_CACHE_SIZE 		(400*1024*1024)
 
 
 
@@ -563,344 +564,9 @@ inline void UpdateAlphas(float& alphai,float& alphaj,const float& Kij,const floa
 
 
 
-
-extern "C"
-void SVRTrain(float *mexalpha,float* beta,float*y,float *x ,float CC, float gamma, float eps, int m, int n, float StoppingCrit)
-{
-	
-	cudaEvent_t start, stop;
-	cudaEventCreate(&start);
-	cudaEventCreate(&stop);
-	
-	// mxArray *mexelapsed =mxCreateNumericMatrix(1, 1,mxSINGLE_CLASS, mxREAL);
-	// float * elapsed=(float *)mxGetData(mexelapsed);    
-
-	cudaEventRecord(start,0);
-	
-	cublasInit();
-
-	int numBlocks=64;
-	dim3 ReduceGrid(numBlocks, 1, 1);
-	dim3 ReduceBlock(256, 1, 1);
-
-  
-	float h_taumin=0.0001;
-	CUDA_SAFE_CALL(cudaMemcpyToSymbol(taumin, &h_taumin, sizeof(float)));
-
-	gamma*=-1;
-	CUDA_SAFE_CALL(cudaMemcpyToSymbol(gamma, &kernelwidth, sizeof(float)));
-
-	CUDA_SAFE_CALL(cudaMemcpyToSymbol(C, &CC, sizeof(float)));
-
-
-	float *alphasvr=new float [2*m];
-	float *ybinary=new float [2*m];
-	float *F=new float [2*m];
-
-	for(int j=0;j<m;j++)
-	{
-		alphasvr[j]=0;
-		ybinary[j]=1;
-		F[j]=-y[j]+eps;
-
-		alphasvr[j+m]=0;
-		ybinary[j+m]=-1;
-		F[j+m]=y[j]+eps; 
-
-
-	}
-
-
-	float *SelfDotProd=new float [m];
-	DotProdVector(x, SelfDotProd,m, n);
-
-	int nbrCtas;
-	int elemsPerCta;
-	int threadsPerCta;
-
-	VectorSplay (m, SAXPY_THREAD_MIN, SAXPY_THREAD_MAX, SAXPY_CTAS_MAX, &nbrCtas, &elemsPerCta,&threadsPerCta);
-  
-
-	float * d_x;
-	float * d_xT;
-	float * d_alpha;
-	float* d_y;
-	float* d_F;
-	float *d_KernelDotProd;
-	float *d_SelfDotProd;
-	float *d_KernelJ;
-	float *d_KernelI;
-	float* d_KernelInterRow;
-
-
-	CUDA_SAFE_CALL(cudaMalloc( (void**) &d_x, m*n*sizeof(float)));
-	CUDA_SAFE_CALL(cudaMalloc( (void**) &d_xT, m*n*sizeof(float)));
-	CUDA_SAFE_CALL(cudaMemcpy(d_x, x, sizeof(float)*n*m,cudaMemcpyHostToDevice));
-	dim3 gridtranspose(ceil((float)m / TRANS_BLOCK_DIM), ceil((float)n / TRANS_BLOCK_DIM), 1);
-	dim3 threadstranspose(TRANS_BLOCK_DIM, TRANS_BLOCK_DIM, 1);
-	cudaThreadSynchronize();
-	transpose<<< gridtranspose, threadstranspose >>>(d_xT, d_x, m, n);
-	
-	float *xT=new float [n*m];   
-	CUDA_SAFE_CALL(cudaMemcpy(xT, d_xT, sizeof(float)*m*n,cudaMemcpyDeviceToHost));
-	CUDA_SAFE_CALL(cudaFree(d_xT));
-	
-
-	CUDA_SAFE_CALL(cudaMalloc( (void**) &d_KernelInterRow, n*sizeof(float)));
-	CUDA_SAFE_CALL(cudaMalloc( (void**) &d_alpha, 2*m*sizeof(float)));
-	CUDA_SAFE_CALL(cudaMalloc( (void**) &d_y, 2*m*sizeof(float)));
-	CUDA_SAFE_CALL(cudaMalloc( (void**) &d_F, 2*m*sizeof(float)));
-	CUDA_SAFE_CALL(cudaMalloc( (void**) &d_SelfDotProd, m*sizeof(float)));
-	CUDA_SAFE_CALL(cudaMalloc( (void**) &d_KernelDotProd, m*sizeof(float)));
-
-
-
-
-	CUDA_SAFE_CALL(cudaMemcpy(d_y, ybinary, sizeof(float)*m*2,cudaMemcpyHostToDevice));
-	CUDA_SAFE_CALL(cudaMemcpy(d_alpha, alphasvr, sizeof(float)*m*2,cudaMemcpyHostToDevice));
-	CUDA_SAFE_CALL(cudaMemcpy(d_F, F, sizeof(float)*m*2,cudaMemcpyHostToDevice));
-	CUDA_SAFE_CALL(cudaMemcpy(d_SelfDotProd, SelfDotProd, sizeof(float)*m,cudaMemcpyHostToDevice));
-	
-	
- 
-	delete [] F;
-	delete [] SelfDotProd;
-
-
-	float* value_inter;
-	int* index_inter;
-	float* value_inter_svr;
-	int* index_inter_svr;
-
-
-
-	cudaMallocHost( (void**)&value_inter, numBlocks*sizeof(float) );
-	cudaMallocHost( (void**)&index_inter, numBlocks*sizeof(int) );
-	cudaMallocHost( (void**)&value_inter_svr, 2*numBlocks*sizeof(float) );
-	cudaMallocHost( (void**)&index_inter_svr, 2*numBlocks*sizeof(int) );
-
-
-
-	float* d_value_inter;
-	int* d_index_inter;
-
-
-	CUDA_SAFE_CALL(cudaMalloc( (void**) &d_value_inter, numBlocks*sizeof(float)));
-	CUDA_SAFE_CALL(cudaMalloc( (void**) &d_index_inter, numBlocks*sizeof(int)));
-
-	
-	size_t free, total;
-	cuMemGetInfo(&free, &total);
-	
-
-	int KernelCacheSize=free-MBtoLeave*1024*1024;
-	//KernelCacheSize=min(KERNEL_CACHE_SIZE,KernelCacheSize);
-	int RowsInKernelCache=-1;
-
-	float *d_Kernel_Cache;
-	CUDA_SAFE_CALL(cudaMalloc( (void**) &d_Kernel_Cache, KernelCacheSize));
-
-	//checkCUDAError("Kernel Cache GPU memory  allocation failed");
-	RowsInKernelCache=KernelCacheSize/(sizeof(float)*m);
-
-	vector<int> KernelCacheIndices(RowsInKernelCache,-1);
-	vector<int> KernelCacheItersSinceUsed(RowsInKernelCache,0);
-	vector<int>::iterator CachePosI;
-	vector<int>::iterator CachePosJ;
-	int CacheDiffI;
-	int CacheDiffJ;
-
-
-
-
-	
-	int CheckStoppingCritEvery=255;
-	int iter=0;
-
-	float BIValue;
-	int BIIndex;
-	float SJValue;
-	float BJSecondOrderValue;
-	int BJIndex;
-	float Kij;
-	float yj;
-	float yi;
-	float alphai;
-	float alphaj;
-	float oldalphai;
-	float oldalphaj;
-	float Fi;
-	float Fj;
-	
-
-	while (1)
-	{
-			
-			FindBI<256><<<ReduceGrid, ReduceBlock>>>(d_F, d_y,d_alpha,d_value_inter,d_index_inter, 2*m);
-			
-			CUDA_SAFE_CALL(cudaMemcpy(value_inter, d_value_inter, sizeof(float)*numBlocks,cudaMemcpyDeviceToHost));
-			CUDA_SAFE_CALL(cudaMemcpy(index_inter, d_index_inter, sizeof(int)*numBlocks,cudaMemcpyDeviceToHost));
-			cudaThreadSynchronize();
-			CpuMaxInd(BIValue,BIIndex,value_inter,index_inter,numBlocks);
-			
-			if ((iter & CheckStoppingCritEvery)==0)
-			{
-				FindStoppingJ<256><<<ReduceGrid, ReduceBlock>>>(d_F, d_y,d_alpha,d_value_inter, 2*m);
-				
-				CUDA_SAFE_CALL(cudaMemcpy(value_inter, d_value_inter, sizeof(float)*numBlocks,cudaMemcpyDeviceToHost));
-				cudaThreadSynchronize();
-				CpuMin(SJValue,value_inter,numBlocks);
-
-				if(BIValue-SJValue<StoppingCrit) {*beta=(SJValue+BIValue)/2; break;}
-			}
-			 
-
-			CachePosI=find(KernelCacheIndices.begin(),KernelCacheIndices.end(),(BIIndex>=m?BIIndex-m:BIIndex));
-			if (CachePosI ==KernelCacheIndices.end())
-			{
-				CacheDiffI=max_element(KernelCacheItersSinceUsed.begin(),KernelCacheItersSinceUsed.end())-KernelCacheItersSinceUsed.begin();
-				d_KernelI=d_Kernel_Cache+CacheDiffI*m;
-				CUDA_SAFE_CALL(cudaMemcpy(d_KernelInterRow, xT+(BIIndex>=m?BIIndex-m:BIIndex)*n, n*sizeof(float),cudaMemcpyHostToDevice));
-				RBFKernel(d_KernelI,(BIIndex>=m?BIIndex-m:BIIndex),d_x,d_KernelInterRow,d_KernelDotProd,d_SelfDotProd,m,n,nbrCtas,threadsPerCta);
-								
-				*(KernelCacheIndices.begin()+CacheDiffI)=(BIIndex>=m?BIIndex-m:BIIndex);
-			}
-			else
-			{
-				CacheDiffI=CachePosI-KernelCacheIndices.begin();
-				d_KernelI=d_Kernel_Cache+m*CacheDiffI;
-			}
-			*(KernelCacheItersSinceUsed.begin()+CacheDiffI)=-1;
-
-			
-		   
-			
-			FindBJ<256><<<ReduceGrid, ReduceBlock>>>(d_F, d_y,d_alpha,d_KernelI,d_value_inter,d_index_inter,BIValue, m);
-			
-			CUDA_SAFE_CALL(cudaMemcpy(value_inter_svr, d_value_inter, sizeof(float)*numBlocks,cudaMemcpyDeviceToHost));
-			CUDA_SAFE_CALL(cudaMemcpy(index_inter_svr, d_index_inter, sizeof(int)*numBlocks,cudaMemcpyDeviceToHost));
-				
-			
-			FindBJ<256><<<ReduceGrid, ReduceBlock>>>(d_F+m, d_y+m,d_alpha+m,d_KernelI,d_value_inter,d_index_inter,BIValue,m);
-			
-			CUDA_SAFE_CALL(cudaMemcpy(value_inter_svr+numBlocks, d_value_inter, sizeof(float)*numBlocks,cudaMemcpyDeviceToHost));
-			CUDA_SAFE_CALL(cudaMemcpy(index_inter_svr+numBlocks, d_index_inter, sizeof(int)*numBlocks,cudaMemcpyDeviceToHost));
-			cudaThreadSynchronize();
-			CpuMaxIndSvr(BJSecondOrderValue,BJIndex,value_inter_svr,index_inter_svr,2*numBlocks,m);
-			
-
-			CUDA_SAFE_CALL(cudaMemcpy(&Kij, d_KernelI+(BJIndex>=m?BJIndex-m:BJIndex), sizeof(float),cudaMemcpyDeviceToHost));
-
-			CUDA_SAFE_CALL(cudaMemcpy(&alphai, d_alpha+BIIndex, sizeof(float),cudaMemcpyDeviceToHost));
-			CUDA_SAFE_CALL(cudaMemcpy(&alphaj, d_alpha+BJIndex, sizeof(float),cudaMemcpyDeviceToHost));
-
-
-			CUDA_SAFE_CALL(cudaMemcpy(&yi, d_y+BIIndex, sizeof(float),cudaMemcpyDeviceToHost));
-			CUDA_SAFE_CALL(cudaMemcpy(&yj, d_y+BJIndex, sizeof(float),cudaMemcpyDeviceToHost));
-			CUDA_SAFE_CALL(cudaMemcpy(&Fi, d_F+BIIndex, sizeof(float),cudaMemcpyDeviceToHost));
-			CUDA_SAFE_CALL(cudaMemcpy(&Fj, d_F+BJIndex, sizeof(float),cudaMemcpyDeviceToHost));
-
-			oldalphai=alphai;
-			oldalphaj=alphaj;
-
-
-			UpdateAlphas(alphai,alphaj,Kij,yi,yj,Fi,Fj,CC,h_taumin);
-
-
-
-			CUDA_SAFE_CALL(cudaMemcpy(d_alpha+BIIndex, &alphai, sizeof(float),cudaMemcpyHostToDevice));
-			CUDA_SAFE_CALL(cudaMemcpy(d_alpha+BJIndex, &alphaj, sizeof(float),cudaMemcpyHostToDevice));
-
-			float deltaalphai = alphai - oldalphai;
-			float deltaalphaj = alphaj - oldalphaj;
-
-			
-
-
-			CachePosJ=find(KernelCacheIndices.begin(),KernelCacheIndices.end(),(BJIndex>=m?BJIndex-m:BJIndex));
-			if (CachePosJ ==KernelCacheIndices.end())
-			{
-				CacheDiffJ=max_element(KernelCacheItersSinceUsed.begin(),KernelCacheItersSinceUsed.end())-KernelCacheItersSinceUsed.begin();
-				d_KernelJ=d_Kernel_Cache+CacheDiffJ*m;
-				CUDA_SAFE_CALL(cudaMemcpy(d_KernelInterRow, xT+(BJIndex>=m?BJIndex-m:BJIndex)*n, n*sizeof(float),cudaMemcpyHostToDevice));
-				RBFKernel(d_KernelJ,(BJIndex>=m?BJIndex-m:BJIndex),d_x,d_KernelInterRow,d_KernelDotProd,d_SelfDotProd,m,n,nbrCtas,threadsPerCta);
-				
-				  
-				*(KernelCacheIndices.begin()+CacheDiffJ)=(BJIndex>=m?BJIndex-m:BJIndex);
-			}
-			else
-			{
-				CacheDiffJ=CachePosJ-KernelCacheIndices.begin();
-				d_KernelJ=d_Kernel_Cache+m*CacheDiffJ;
-
-			}
-
-			
-			UpdateF<<<nbrCtas,threadsPerCta>>>(d_F,d_KernelI,d_KernelJ,d_y,deltaalphai,deltaalphaj,yi,yj,m);
-  
-			UpdateF<<<nbrCtas,threadsPerCta>>>(d_F+m,d_KernelI,d_KernelJ,d_y+m,deltaalphai,deltaalphaj,yi,yj,m);
-			
-
-			IncrementKernelCache(KernelCacheItersSinceUsed,RowsInKernelCache);
-
-			*(KernelCacheItersSinceUsed.begin()+CacheDiffI)=0;
-			*(KernelCacheItersSinceUsed.begin()+CacheDiffJ)=0;
-
-		iter++;
-	}
-
-	cublasGetVector(m*2,sizeof(float),d_alpha,1,alphasvr,1);
-
-	for(int k=0;k<m;k++) 	{
-		mexalpha[k]=(alphasvr[k]-alphasvr[k+m])*ybinary[k];
-	}
-	
-
-	cudaEventRecord(stop,0);
-	cudaEventSynchronize(stop);
-	// cudaEventElapsedTime(elapsed, start, stop);
-	// mexPutVariable("base","cuSVMTrainTimeInMS",mexelapsed);   
-
-	delete [] ybinary;
-	delete [] alphasvr;
-	delete [] xT;
-
-	cudaFreeHost(value_inter_svr);
-	cudaFreeHost(index_inter_svr);
-	cudaFreeHost(value_inter);
-	cudaFreeHost(index_inter);
-	
-	CUDA_SAFE_CALL(cudaFree(d_x));
-	CUDA_SAFE_CALL(cudaFree(d_y));
-	CUDA_SAFE_CALL(cudaFree(d_alpha));
-	CUDA_SAFE_CALL(cudaFree(d_Kernel_Cache));
-	CUDA_SAFE_CALL(cudaFree(d_KernelInterRow));
-	CUDA_SAFE_CALL(cudaFree(d_F));
-	CUDA_SAFE_CALL(cudaFree(d_value_inter));
-	CUDA_SAFE_CALL(cudaFree(d_index_inter));
-	CUDA_SAFE_CALL(cudaFree(d_SelfDotProd));
-	CUDA_SAFE_CALL(cudaFree(d_KernelDotProd));
-	CUDA_SAFE_CALL( cudaThreadExit());
-	return;
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 extern "C"
 void SVMTrain(float *mexalpha,float* beta,float*y,float *x ,float CC, float gamma, int m, int n, float StoppingCrit)
 {
-
 	//CUDA_SAFE_CALL(cudaSetDevice(1));
 
 	cudaEvent_t start, stop;
@@ -910,21 +576,25 @@ void SVMTrain(float *mexalpha,float* beta,float*y,float *x ,float CC, float gamm
 	// mxArray *mexelapsed =mxCreateNumericMatrix(1, 1,mxSINGLE_CLASS, mxREAL);
 	// float * elapsed=(float *)mxGetData(mexelapsed);
 
-
 	cudaEventRecord(start,0);
+	checkCUDAError("Malaysia base\n");
 
 	int numBlocks=64;
 	dim3 ReduceGrid(numBlocks, 1, 1);
 	dim3 ReduceBlock(256, 1, 1);
+	checkCUDAError("Finland base\n");
 
 	float h_taumin=0.0001;
 	
 	CUDA_SAFE_CALL(cudaMemcpyToSymbol(taumin, &h_taumin, sizeof(float) ));
+	checkCUDAError("China base\n");
 
 	gamma*=-1;
 	CUDA_SAFE_CALL(cudaMemcpyToSymbol(kernelwidth, &gamma, sizeof(float)));
 
 	CUDA_SAFE_CALL(cudaMemcpyToSymbol(C, &CC, sizeof(float)));
+	checkCUDAError("Kongo base\n");
+	
 
 
 	float *h_alpha=new float [m];
@@ -980,6 +650,7 @@ void SVMTrain(float *mexalpha,float* beta,float*y,float *x ,float CC, float gamm
 	
 	//!!free d_xT
 	CUDA_SAFE_CALL(cudaFree(d_xT));
+	checkCUDAError("Japan base\n");
 	
 
 	float* d_KernelInterRow;
@@ -991,51 +662,46 @@ void SVMTrain(float *mexalpha,float* beta,float*y,float *x ,float CC, float gamm
 	CUDA_SAFE_CALL(cudaMalloc( (void**) &d_F, m*sizeof(float)));
 	CUDA_SAFE_CALL(cudaMalloc( (void**) &d_SelfDotProd, m*sizeof(float)));
 	CUDA_SAFE_CALL(cudaMalloc( (void**) &d_KernelDotProd, m*sizeof(float)));
+	checkCUDAError("Turkey base\n");
 
 	CUDA_SAFE_CALL(cudaMemcpy(d_y, y, sizeof(float)*m,cudaMemcpyHostToDevice));
 	CUDA_SAFE_CALL(cudaMemcpy(d_alpha, h_alpha, sizeof(float)*m,cudaMemcpyHostToDevice));
 	CUDA_SAFE_CALL(cudaMemcpy(d_F, h_F, sizeof(float)*m,cudaMemcpyHostToDevice));
 	CUDA_SAFE_CALL(cudaMemcpy(d_SelfDotProd, SelfDotProd, sizeof(float)*m,cudaMemcpyHostToDevice));
-
-
+	checkCUDAError("Brazil base\n");
 
 	delete [] SelfDotProd;
-
 
 	float* value_inter;
 	int* index_inter;
 
-
 	cudaMallocHost( (void**)&value_inter, numBlocks*sizeof(float) );
 	cudaMallocHost( (void**)&index_inter, numBlocks*sizeof(int) );
+	checkCUDAError("First base\n");
 
-
-	//do znajdywania max indeksu I oraz jego wartoœci, póŸniej wykorzystywane przy 
-	//kroku optymalizacyjnym w svm
+	// reserve memory for svm
 	float* d_value_inter;
 	int* d_index_inter;
-
-
 	CUDA_SAFE_CALL(cudaMalloc( (void**) &d_value_inter, numBlocks*sizeof(float)));
 	CUDA_SAFE_CALL(cudaMalloc( (void**) &d_index_inter, numBlocks*sizeof(int)));
-	
+	checkCUDAError("Second base\n");
+
+	// we try to allocate as much memory as we can
 	size_t free, total;
 	cuMemGetInfo(&free, &total);
-
-
-	
-	int KernelCacheSize=free-MBtoLeave*1024*1024;
+	int KernelCacheSize=free - MBtoLeave*1024*1024;
 	KernelCacheSize=min(KERNEL_CACHE_SIZE,KernelCacheSize);
+	KernelCacheSize = 1024*1024*256;
 	int RowsInKernelCache=-1;
 
 	float *d_Kernel_Cache;
 	CUDA_SAFE_CALL(cudaMalloc( (void**) &d_Kernel_Cache, KernelCacheSize));
-
-	checkCUDAError("Kernel Cache GPU memory  allocation failed");
+	checkCUDAError("Kernel Cache GPU memory  allocation failed\n");
 	RowsInKernelCache=KernelCacheSize/(sizeof(float)*m);
 	
 	vector<int> KernelCacheIndices(RowsInKernelCache,-1);
 	vector<int> KernelCacheItersSinceUsed(RowsInKernelCache,0);
+
 	vector<int>::iterator CachePosI;
 	vector<int>::iterator CachePosJ;
 	int CacheDiffI;

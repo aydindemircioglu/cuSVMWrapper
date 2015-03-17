@@ -3,8 +3,6 @@
 #define _CUSVMUTIL_H_
 
 
-#define MBtoLeave         (200)
-
 #define CUBIC_ROOT_MAX_OPS         (2000)
 
 #define SAXPY_CTAS_MAX           (80)
