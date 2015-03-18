@@ -76,6 +76,86 @@ void exit_input_error(int line_num)
 
 
 
+// label: label name, start: begin of each class, count: #data of classes, perm: indices to the original data
+// perm, length l, must be allocated before calling this subroutine
+static void svm_group_classes(const svm_problem *prob, int *nr_class_ret, int **label_ret, int **start_ret, int **count_ret, int *perm)
+{
+	int l = prob->l;
+	int max_nr_class = 16;
+	int nr_class = 0;
+	int *label = Malloc(int,max_nr_class);
+	int *count = Malloc(int,max_nr_class);
+	int *data_label = Malloc(int,l);	
+	int i;
+	
+	for(i=0;i<l;i++)
+	{
+		int this_label = (int)prob->y[i];
+		int j;
+		for(j=0;j<nr_class;j++)
+		{
+			if(this_label == label[j])
+			{
+				++count[j];
+				break;
+			}
+		}
+		data_label[i] = j;
+		if(j == nr_class)
+		{
+			if(nr_class == max_nr_class)
+			{
+				max_nr_class *= 2;
+				label = (int *)realloc(label,max_nr_class*sizeof(int));
+				count = (int *)realloc(count,max_nr_class*sizeof(int));
+			}
+			label[nr_class] = this_label;
+			count[nr_class] = 1;
+			++nr_class;
+		}
+	}
+	
+	//
+	// Labels are ordered by their first occurrence in the training set. 
+	// However, for two-class sets with -1/+1 labels and -1 appears first, 
+	// we swap labels to ensure that internally the binary SVM has positive data corresponding to the +1 instances.
+	//
+	if (nr_class == 2 && label[0] == -1 && label[1] == 1)
+	{
+		swap(label[0],label[1]);
+		swap(count[0],count[1]);
+		for(i=0;i<l;i++)
+		{
+			if(data_label[i] == 0)
+				data_label[i] = 1;
+			else
+				data_label[i] = 0;
+		}
+	}
+	
+	int *start = Malloc(int,nr_class);
+	start[0] = 0;
+	for(i=1;i<nr_class;i++)
+		start[i] = start[i-1]+count[i-1];
+	for(i=0;i<l;i++)
+	{
+		perm[start[data_label[i]]] = i;
+		++start[data_label[i]];
+	}
+	start[0] = 0;
+	for(i=1;i<nr_class;i++)
+		start[i] = start[i-1]+count[i-1];
+	
+	*nr_class_ret = nr_class;
+	*label_ret = label;
+	*start_ret = start;
+	*count_ret = count;
+	free(data_label);
+}
+
+
+
+
 void parse_command_line(int argc, char **argv, char *input_file_name, char *model_file_name);
 void read_problem(const char *filename);
 void do_cross_validation();
@@ -90,7 +170,7 @@ int nr_fold;
 static char *line = NULL;
 static int max_line_len;
 
-
+#define DEBUG if (1 == 1) 
 
 static char* readline(FILE *input)
 {
@@ -119,29 +199,30 @@ int main(int argc, char **argv)
 	char model_file_name[1024];
 	const char *error_msg;
 	
+	// parse CL and read problem.
 	parse_command_line(argc, argv, input_file_name, model_file_name);
 	read_problem(input_file_name);
 	error_msg = svm_check_parameter(&prob,&param);
 	
-	if(error_msg)
-	{
+	if(error_msg) {
 		fprintf(stderr,"ERROR: %s\n",error_msg);
 		exit(1);
 	}
 	
-	
+	DEBUG std::cout << "Loaded training file with " << prob.l << " points and " << prob.max_index << " features.\n";
+		
 	//create the structures directly
 	float *y = Calloc (float, prob.l); 
 	float *x = Calloc (float, prob.l * prob.max_index );
 	
-	for(int i=0;i<prob.l;i++)
+	for(int i = 0; i < prob.l; i++)
 	{
 		// elementwise copy over
 		svm_node *px = prob.x[i];
 		
 		while(px->index != -1)
 		{
-			x[prob.l*prob.max_index + px->index] = px -> value;
+			x[i*prob.max_index + px->index] = px -> value;
 			++px;
 		}
 		
@@ -178,27 +259,43 @@ int main(int argc, char **argv)
 	
 	if (NotOneorNegOneError==1)
 		throw ("Training labels must be either 1 or -1.");
-		
+
+	DEBUG std::cout << "Getting problem properties.\n";
+	int l = prob.l;
+	int nr_class = 2;
+	int *label = NULL;
+	int *start = NULL;
+	int *count = NULL;
+	int *perm = Malloc(int,l);
+	
+	// group training data of the same class
+	svm_group_classes (&prob, &nr_class, &label, &start, &count, perm);
+	DEBUG std::cout << "Found " << nr_class << " classes.\n";
+	
+	
 	// do the training now.
-	float *alpha=new float [prob.l];
+	float *alpha=Calloc(float, prob.l);
 	
 	// FIXME: KERNEL CACHE SIZE
 	int IsRegression = 0;
 
+	std::cout << "Starting Training on GPU\n";
 	SVMTrain(alpha, &bias, y, x ,C, kernelwidth, prob.l, prob.max_index, eps); //alpha, &bias, y, x ,C, kernelwidth, prob.l, prob.max_index, eps
-
+	std::cout << "Finished Training on GPU\n";
+	
 	// save  damn model
 	struct svm_model* hack_model = Malloc(svm_model, 1);
-
 	hack_model->param = param;
 
-	double* coeff_ptr = Malloc(double, prob.l);
+	double* coeff_ptr = Calloc(double, prob.l);
 	hack_model->sv_coef = &coeff_ptr;
-	hack_model->SV = Malloc(svm_node*, prob.l);
+	hack_model->SV = Calloc(svm_node*, prob.l);
 	int nonzero = 0;
 	int positive = 0;
 	int negative = 0;
 	
+	DEBUG std::cout << "Converting model.\n";
+	SVC_Q Q(prob, param, y);
 	for (int i=0; i < prob.l; i++)
 	{
 		if (alpha[i] != 0.0)
@@ -213,12 +310,14 @@ int main(int argc, char **argv)
 				coeff_ptr[nonzero] = -alpha[i];
 				negative++;
 			}
-			SVC_Q Q(prob, param, y);
 			hack_model->SV[nonzero] = const_cast<struct svm_node *>(Q.get_x(i));
 			nonzero++;
 		}
 	}
-
+	DEBUG std::cout << "Found " << nonzero << " support vectors, " << positive << " positive and " << negative << " negative.\n";
+	
+	// FIXME: assume binary problem here!
+	
 	hack_model->rho = Malloc(double, 1);
 	hack_model->nSV = Malloc(int, 2);
 	hack_model->l = nonzero;
@@ -226,20 +325,28 @@ int main(int argc, char **argv)
 	hack_model->nSV[1] = negative;
 	hack_model->rho[0] = bias;
 	
-
+	hack_model->nr_class = nr_class;
+	
+	hack_model->label = Malloc(int, nr_class);
+	for(int j = 0; j < nr_class; j++)
+		hack_model->label[j] = label[j];
+	
+	hack_model->probA=NULL;
+	hack_model->probB=NULL;
+	
+	// write model to disk
+	DEBUG std::cout << "Writing model to " << model_file_name << "\n";
 	if(svm_save_model(model_file_name, hack_model))
 	{
 		fprintf(stderr, "can't save model to file %s\n", model_file_name);
 		exit(1);
 	}
 
-
-	
 	free(coeff_ptr);
 	free(hack_model->SV);
+	free (alpha);
 
-	// now we need to create our model with these alphas
-
+	// yeah, we have a memory leak here, luckily we quit anyway.
 	svm_destroy_param(&param);
 // 	free(prob.y);
 // 	free(prob.x);

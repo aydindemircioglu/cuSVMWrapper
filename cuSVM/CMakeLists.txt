@@ -49,8 +49,9 @@
 	
 	
 # other options
-	option (DEBUG_MODE "Build in debug mode?" OFF)
+	option (DEBUG_MODE "Build in debug mode?" ON)
 	if(DEBUG_MODE)
+		message (STATUS "############################ DEBUG MODE!")
 		set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -g")
 		set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g")
 		set (CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -g -G")
