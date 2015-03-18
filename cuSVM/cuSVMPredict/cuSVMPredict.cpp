@@ -174,6 +174,8 @@ void exit_with_help()
 	exit(1);
 }
 
+
+
 int main(int argc, char **argv)
 {
 	FILE *input, *output;
@@ -218,20 +220,23 @@ int main(int argc, char **argv)
 	}
 
 	x = (struct svm_node *) malloc(max_nr_attr*sizeof(struct svm_node));
-	if(predict_probability)
-	{
-		if(svm_check_probability_model(model)==0)
-		{
-			fprintf(stderr,"Model does not support probabiliy estimates\n");
-			exit(1);
-		}
-	}
-	else
-	{
-		if(svm_check_probability_model(model)!=0)
-			printf("Model supports probability estimates, but disabled in prediction.\n");
-	}
+
+	// model is loaded now
+	
+	float *input;
+	float *supportVectors;
+	float *alphas;
+	float *predictions;
+	float *bias;
+	bool isregression = 0;
+	float *kernelwidth = model.gamma;
+	int m = 0;
+	int n = 0;
+	int k = 0;
+	GPUPredictWrapper(m, n, k, kernelwidth, input, supportVectors, alphas, predictions, bias, isregression);
+	
 	predict(input,output);
+
 	svm_free_and_destroy_model(&model);
 	free(x);
 	free(line);

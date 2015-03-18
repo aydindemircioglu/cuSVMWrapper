@@ -1,4 +1,15 @@
 #!/bin/sh
 sudo modprobe nvidia-346
 sudo modprobe nvidia-346-uvm
-./cuSVMTrain  -s 0 -t 2 -g 1 -c 1 ~/lab/data/mnist/mnist.100 ./model
+./cuSVMTrain  -s 0 -t 2 -g 0.0073 -c 2.8 ~/lab/data/mnist/mnist.5000 ./model
+~/lab/software/libSVM/bin/svm-train  -s 0 -t 2 -g 0.0073 -c 2.8 ~/lab/data/mnist/mnist.5000 ./model.libsvm
+
+echo "cuSVM Prediction via LIBSVM:"
+~/lab/software/libSVM/bin/svm-predict ~/lab/data/mnist/mnist.test ./model /tmp/o2
+echo "LIBSVM Prediction via LIBSVM:"
+~/lab/software/libSVM/bin/svm-predict ~/lab/data/mnist/mnist.test ./model.libsvm /tmp/o
+
+echo "cuSVM Prediction via cuSVM:"
+./cuSVMPredict ~/lab/data/mnist/mnist.test ./model /tmp/o2
+echo "LIBSVM Prediction via cuSVM:"
+./cuSVMPredict ~/lab/data/mnist/mnist.test ./model.libsvm /tmp/o

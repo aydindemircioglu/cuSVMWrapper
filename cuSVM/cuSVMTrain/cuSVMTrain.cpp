@@ -57,7 +57,7 @@ void exit_with_help()
 		"	2 -- radial basis function: exp(-gamma*|u-v|^2)\n"
 		"-g gamma : set gamma in kernel function (default 1/num_features)\n"
 		"-c cost : set the parameter C of C-SVC, epsilon-SVR, and nu-SVR (default 1)\n"
-		"-p epsilon : set the epsilon in loss function of epsilon-SVR (default 0.1)\n"
+//		"-p epsilon : set the epsilon in loss function of epsilon-SVR (default 0.1)\n"
 		"-m cachesize : set cache memory size in MB (default 100)\n"
 		"-e epsilon : set tolerance of termination criterion (default 0.001)\n"
 //		"-h shrinking : whether to use the shrinking heuristics, 0 or 1 (default 1)\n"
@@ -280,7 +280,10 @@ int main(int argc, char **argv)
 	int IsRegression = 0;
 
 	std::cout << "Starting Training on GPU\n";
-	SVMTrain(alpha, &bias, y, x ,C, kernelwidth, prob.l, prob.max_index, eps); //alpha, &bias, y, x ,C, kernelwidth, prob.l, prob.max_index, eps
+	DEBUG std::cout << "Training with C: " << C<< "\n";
+	DEBUG std::cout << "Training with gamma: " << kernelwidth << "\n";
+	DEBUG std::cout << "Training with epsilon: " << eps << "\n";
+	SVMTrain(alpha, &bias, y, x ,C, kernelwidth, prob.l, prob.max_index, eps);
 	std::cout << "Finished Training on GPU\n";
 	
 	// save  damn model
@@ -348,10 +351,13 @@ int main(int argc, char **argv)
 
 	// yeah, we have a memory leak here, luckily we quit anyway.
 	svm_destroy_param(&param);
-// 	free(prob.y);
-// 	free(prob.x);
-// 	free(x_space);
-// 	free(line);
+	free(x);
+	free(y);
+	free(perm);
+ 	free(prob.y);
+ 	free(prob.x);
+ 	free(x_space);
+ 	free(line);
 	return 0;
 }
 

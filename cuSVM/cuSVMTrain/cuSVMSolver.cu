@@ -569,7 +569,9 @@ void SVMTrain(float *mexalpha,float* beta,float*y,float *x ,float CC, float gamm
 {
 	//CUDA_SAFE_CALL(cudaSetDevice(1));
 
-	cudaEvent_t start, stop;
+	// somehow gives valgrind error, do not know how to fix.
+	cudaEvent_t start = 0;
+    cudaEvent_t stop = 0;
 	cudaEventCreate(&start);
 	cudaEventCreate(&stop);
    
@@ -871,6 +873,11 @@ void SVMTrain(float *mexalpha,float* beta,float*y,float *x ,float CC, float gamm
 	delete [] xT;
 	cudaFreeHost(value_inter);
 	cudaFreeHost(index_inter);
+
+	delete[] h_alpha;
+	delete[] h_F;
+//	CUDA_SAFE_CALL(cudaFree(h_alpha));
+//	CUDA_SAFE_CALL(cudaFree(h_F));
 	
 	CUDA_SAFE_CALL(cudaFree(d_x));
 	CUDA_SAFE_CALL(cudaFree(d_y));

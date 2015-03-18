@@ -49,7 +49,7 @@
 	
 	
 # other options
-	option (DEBUG_MODE "Build in debug mode?" ON)
+	option (DEBUG_MODE "Build in debug mode?" OFF)
 	if(DEBUG_MODE)
 		message (STATUS "############################ DEBUG MODE!")
 		set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -g")
@@ -93,7 +93,7 @@
 	cuda_add_executable(cuSVMPredict 
 		${cuSVMPredictDir}/cuSVMPredict.cpp 
 		${cuSVMPredictKernel_O} 
-		${cuSVMPredictDir}/svm.cpp
+	#	${cuSVMPredictDir}/svm.cpp
 	)
 	CUDA_ADD_CUBLAS_TO_TARGET( cuSVMPredict )
 

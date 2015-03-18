@@ -54,7 +54,7 @@ static inline double powi(double base, int times)
 #define Malloc(type,n) (type *)malloc((n)*sizeof(type))
 
 
-extern std::string modelPath = "./";
+std::string modelPath = "./";
 struct svm_model* hack_model = NULL;
 
 
@@ -639,7 +639,7 @@ void Solver::Solve(int l, const QMatrix& Q, const double *p_, const schar *y_,
             // save intermediate model
             if ((savetime != -1) && (t >= nextsavetime))
             {
-                printf("%");
+                printf("$");
                 fflush(stdout);
                 // create model first
                 double q = now();
