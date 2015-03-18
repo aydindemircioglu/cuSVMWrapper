@@ -23,26 +23,7 @@ int max_nr_attr = 64;
 struct svm_model* model;
 int predict_probability=0;
 
-static char *line = NULL;
-static int max_line_len;
 
-static char* readline(FILE *input)
-{
-	int len;
-	
-	if(fgets(line,max_line_len,input) == NULL)
-		return NULL;
-
-	while(strrchr(line,'\n') == NULL)
-	{
-		max_line_len *= 2;
-		line = (char *) realloc(line,max_line_len);
-		len = (int) strlen(line);
-		if(fgets(line+len,max_line_len-len,input) == NULL)
-			break;
-	}
-	return line;
-}
 
 void exit_input_error(int line_num)
 {
@@ -125,20 +106,13 @@ void predict(FILE *input, FILE *output)
 		}
 		x[i].index = -1;
 
-		if (predict_probability && (svm_type==C_SVC || svm_type==NU_SVC))
 		{
-			predict_label = svm_predict_probability(model,x,prob_estimates);
-			fprintf(output,"%g",predict_label);
-			for(j=0;j<nr_class;j++)
-				fprintf(output," %g",prob_estimates[j]);
-			fprintf(output,"\n");
-		}
-		else
-		{
-			predict_label = svm_predict(model,x);
+		//	predict_label = svm_predict(model,x);
 			fprintf(output,"%g\n",predict_label);
 		}
 
+
+		
 		if(predict_label == target_label)
 			++correct;
 		error += (predict_label-target_label)*(predict_label-target_label);
@@ -149,15 +123,6 @@ void predict(FILE *input, FILE *output)
 		sumpt += predict_label*target_label;
 		++total;
 	}
-	if (svm_type==NU_SVR || svm_type==EPSILON_SVR)
-	{
-		printf("Mean squared error = %g (regression)\n",error/total);
-		printf("Squared correlation coefficient = %g (regression)\n",
-		       ((total*sumpt-sump*sumt)*(total*sumpt-sump*sumt))/
-		       ((total*sumpp-sump*sump)*(total*sumtt-sumt*sumt))
-		       );
-	}
-	else
 		printf("Accuracy = %g%% (%d/%d) (classification)\n",
 		       (double)correct/total*100,correct,total);
 	if(predict_probability)
@@ -222,7 +187,7 @@ int main(int argc, char **argv)
 	x = (struct svm_node *) malloc(max_nr_attr*sizeof(struct svm_node));
 
 	// model is loaded now
-	
+	/*
 	float *input;
 	float *supportVectors;
 	float *alphas;
@@ -243,6 +208,7 @@ int main(int argc, char **argv)
 	fclose(input);
 	fclose(output);
 	return 0;
+	*/
 }
 
 

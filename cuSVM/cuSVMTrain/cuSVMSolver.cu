@@ -646,7 +646,7 @@ void SVMTrain(float *mexalpha,float* beta,float*y,float *x ,float CC, float gamm
 	//transpose d_x into d_xT, function in cuSVMutils
 	transpose<<< gridtranspose, threadstranspose >>>(d_xT, d_x, m, n);
 	
-	//transpose x (trainnig elements)
+	//transpose x (training elements)
 	float *xT=new float [n*m];   
 	CUDA_SAFE_CALL(cudaMemcpy(xT, d_xT, sizeof(float)*m*n,cudaMemcpyDeviceToHost));
 	
@@ -800,7 +800,7 @@ void SVMTrain(float *mexalpha,float* beta,float*y,float *x ,float CC, float gamm
 		oldalphai=alphai;
 		oldalphaj=alphaj;
 
-		UpdateAlphas(alphai,alphaj,Kij,yi,yj,Fi,Fj,CC,h_taumin);
+		UpdateAlphas(alphai, alphaj, Kij, yi, yj, Fi, Fj, CC, h_taumin);
 
 		CUDA_SAFE_CALL(cudaMemcpy(d_alpha+BIIndex, &alphai, sizeof(float),cudaMemcpyHostToDevice));
 		CUDA_SAFE_CALL(cudaMemcpy(d_alpha+BJIndex, &alphaj, sizeof(float),cudaMemcpyHostToDevice));

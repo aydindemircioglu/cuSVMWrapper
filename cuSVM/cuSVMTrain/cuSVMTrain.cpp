@@ -222,7 +222,8 @@ int main(int argc, char **argv)
 		
 		while(px->index != -1)
 		{
-			x[i*prob.max_index + px->index] = px -> value;
+			// the index of a sparse file starts with 1:... -- at least we assume that here.
+			x[i*prob.max_index + px->index-1] = px -> value;
 			++px;
 		}
 		
@@ -283,8 +284,11 @@ int main(int argc, char **argv)
 	DEBUG std::cout << "Training with C: " << C<< "\n";
 	DEBUG std::cout << "Training with gamma: " << kernelwidth << "\n";
 	DEBUG std::cout << "Training with epsilon: " << eps << "\n";
-	SVMTrain(alpha, &bias, y, x ,C, kernelwidth, prob.l, prob.max_index, eps);
+	
+	SVMTrain(alpha, &bias, y, x ,C, kernelwidth, prob.l, prob.max_index, eps); // m = prob.l n = prob.max_index
+	
 	std::cout << "Finished Training on GPU\n";
+	DEBUG std::cout << "Bias: " <<  bias <<  "\n";
 	
 	// save  damn model
 	struct svm_model* hack_model = Malloc(svm_model, 1);
@@ -326,7 +330,7 @@ int main(int argc, char **argv)
 	hack_model->l = nonzero;
 	hack_model->nSV[0] = positive;
 	hack_model->nSV[1] = negative;
-	hack_model->rho[0] = bias;
+	hack_model->rho[0] = -bias;
 	
 	hack_model->nr_class = nr_class;
 	
