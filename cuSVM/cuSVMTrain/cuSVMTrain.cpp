@@ -213,7 +213,8 @@ int main(int argc, char **argv)
 		
 	//create the structures directly
 	float *y = Calloc (float, prob.l); 
-	float *x = Calloc (float, prob.l * prob.max_index );
+	// the index of a sparse file starts with 1:... -- at least we assume that here!!
+	float *x = Calloc (float, prob.l * (prob.max_index) );
 	
 	for(int i = 0; i < prob.l; i++)
 	{
@@ -223,7 +224,11 @@ int main(int argc, char **argv)
 		while(px->index != -1)
 		{
 			// the index of a sparse file starts with 1:... -- at least we assume that here.
-			x[i*prob.max_index + px->index-1] = px -> value;
+			if (px -> index == 0) {
+				throw "Features in sparse file must start with 1:.. but found 0:...!\n";
+			}
+
+			x[i*(prob.max_index) + px->index-1] = px -> value;
 			++px;
 		}
 		
@@ -273,6 +278,13 @@ int main(int argc, char **argv)
 	svm_group_classes (&prob, &nr_class, &label, &start, &count, perm);
 	DEBUG std::cout << "Found " << nr_class << " classes.\n";
 	
+/*	
+	DEBUG 	for (int i = 0; i < prob.l * prob.max_index; i++) {
+		if (i % prob.max_index == 0) std::cout << "\n" << y[i / prob.max_index] << " ";
+		if (x[i] == 0) continue;
+		std::cout << 1 + i%prob.max_index << ":" << x[i] << " ";
+	}
+	std::cout << "\n";*/
 	
 	// do the training now.
 	float *alpha=Calloc(float, prob.l);
@@ -541,6 +553,7 @@ void read_problem(const char *filename)
 			exit_input_error(i+1);
 		
 		prob.y[i] = strtod(label,&endptr);
+
 		if(endptr == label || *endptr != '\0')
 			exit_input_error(i+1);
 		
@@ -575,23 +588,8 @@ void read_problem(const char *filename)
 	prob.max_index = max_index;
 	if(param.gamma == 0 && max_index > 0)
 		param.gamma = 1.0/max_index;
-	
-	if(param.kernel_type == PRECOMPUTED)
-		for(i=0;i<prob.l;i++)
-		{
-			if (prob.x[i][0].index != 0)
-			{
-				fprintf(stderr,"Wrong input format: first column must be 0:sample_serial_number\n");
-				exit(1);
-			}
-			if ((int)prob.x[i][0].value <= 0 || (int)prob.x[i][0].value > max_index)
-			{
-				fprintf(stderr,"Wrong input format: sample_serial_number out of range\n");
-				exit(1);
-			}
-		}
 		
-		fclose(fp);
+	fclose(fp);
 }
 
 
